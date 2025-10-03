@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>GPS Radar FR — Néon</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+
+<!-- Leaflet + outils -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Leaflet Routing (OSRM public) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"/>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+<!-- Geocoder (Nominatim) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css"/>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+<!-- Clustering radars -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- CSV parse -->
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+:root{
+  --bg:#05070b; --fg:#bfe9ff; --muted:#7aa6c7;
+  --neon:#00e1ff; --accent:#00ffa6; --warn:#ff7ae6; --route:#00ffd5;
+  --panel:#08101a; --border:#1b324d;
+}
+html,body,#app{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+#map{height:100%;width:100%}
+#hud{
+  position:fixed; top:15px; left:15px; right:15px; z-index:1000;
+  display:grid; grid-template-columns: 1fr; gap:12px;
+  background:linear-gradient(135deg, rgba(0,225,255,.15), rgba(0,255,166,.08));
+  border:1px solid var(--border); border-radius:20px; padding:16px;
+  box-shadow:0 8px 32px rgba(0,225,255,.3), inset 0 1px 0 rgba(255,255,255,.1); 
+  backdrop-filter:blur(12px);
+  max-height:50vh; overflow-y:auto;
+}
+.badge{
+  display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:16px;
+  background:rgba(8,16,26,.8); border:1px solid rgba(27,50,77,.6); color:var(--fg); font-size:14px;
+  transition:all 0.3s ease; backdrop-filter:blur(8px);
+}
+.badge:hover{
+  background:rgba(8,16,26,.9); border-color:var(--neon); transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(0,225,255,.2);
+}
+.badge:active{
+  transform:translateY(0px) scale(0.98); transition:all 0.1s ease-out;
+}
+.badge input, .badge button{
+  background:rgba(6,16,26,.9); color:var(--fg); border:1px solid var(--border); border-radius:12px; padding:12px 16px;
+  font-size:15px; min-height:48px; touch-action:manipulation; transition:all 0.2s ease;
+}
+.badge button{ cursor:pointer; white-space:nowrap; font-weight:500; }
+.badge button:hover{ background:rgba(0,225,255,.1); border-color:var(--neon); }
+.badge button:active{ transform:scale(0.95); transition:transform 0.1s ease-out; }
+.badge input{ flex:1; min-width:0; }
+.badge input:focus{ outline:none; border-color:var(--neon); box-shadow:0 0 0 2px rgba(0,225,255,.2); }
+#speed{ font-size:22px; font-weight:700; text-shadow:0 0 12px var(--neon); }
+.pin{
+  width:14px; height:14px; border-radius:50%;
+  background: radial-gradient(circle at 50% 40%, var(--neon), #0088aa 60%, rgba(0,0,0,0) 61%);
+  border:1px solid rgba(0,225,255,.8); box-shadow:0 0 18px rgba(0,225,255,.9), 0 0 36px rgba(0,225,255,.4);
+}
+.radarAlert{
+  position:fixed; bottom:16px; left:10px; right:10px; z-index:1000;
+  background:#090e1b; border:1px solid var(--border); border-radius:14px; padding:12px 16px;
+  box-shadow:0 0 18px rgba(0,225,255,.25); color:var(--fg); font-size:14px;
+  text-align:center;
+}
+a.link{ color:var(--fg) }
+.leaflet-routing-container{ display:none } /* UI native masquée : on pilote via HUD */
+.suggestions-dropdown{
+  position:absolute; top:100%; left:0; right:0; z-index:1001;
+  background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  max-height:200px; overflow-y:auto; display:none;
+  box-shadow:0 4px 12px rgba(0,0,0,0.3);
+}
+.suggestion-item{
+  padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);
+  color:var(--fg); font-size:13px;
+}
+.suggestion-item:hover{ background:rgba(0,225,255,0.1); }
+.suggestion-item:last-child{ border-bottom:none; }
+.suggestion-item.selected{ background:rgba(0,225,255,0.2); }
+
+/* Styles pour le bouton de recentrage */
+#recenterBtn {
+  position: fixed;
+  bottom: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, rgba(0,225,255,.2), rgba(0,255,166,.1));
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--neon);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0,225,255,.3);
+  transition: all 0.3s ease;
+  display: none;
+}
+
+#recenterBtn:hover {
+  background: linear-gradient(135deg, rgba(0,225,255,.3), rgba(0,255,166,.15));
+  transform: translateX(-50%) scale(1.1);
+}
+#recenterBtn:active {
+  transform: translateX(-50%) scale(0.95);
+  transition: transform 0.1s ease-out;
+}
+
+#recenterBtn.show {
+  display: flex;
+}
+
+/* Media queries pour mobile */
+@media (max-width: 768px) {
+  #search-bar-top {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    gap: 8px;
+  }
+
+  #speed-hud {
+    top: 70px;
+    left: 10px;
+  }
+
+  #info-hud {
+    top: 70px;
+    right: 10px;
+    flex-direction: column;
+  }
+
+  .badge {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+
+  .info-card {
+    padding: 8px;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #speed, #heading {
+    font-size: 16px !important;
+  }
+
+  #nextRadar {
+    font-size: 9px !important;
+  }
+
+  .radarAlert {
+    bottom: 90px;
+    left: 10px;
+    right: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    border-radius: 16px;
+  }
+
+  #travelTime {
+    bottom: 140px;
+    right: 10px;
+    font-size: 12px;
+    max-width: 130px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  #recenterBtn {
+    bottom: 75px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 45px;
+    height: 45px;
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  #search-bar-top {
+    gap: 6px;
+  }
+
+  #info-hud {
+    gap: 4px;
+  }
+
+  .badge {
+    font-size: 13px;
+  }
+
+  #travelTime {
+    bottom: 130px;
+    max-width: 110px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .badge input[placeholder] {
+    font-size: 14px;
+  }
+
+  .badge input::placeholder {
+    font-size: 12px;
+  }
+}
+
+/* Empêcher l'agrandissement automatique sur mobile */
+input, button, select, textarea {
+  font-size: 16px !important;
+  transform-origin: left top;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Forcer la taille des éléments d'interface */
+.badge input, .badge button {
+  font-size: 16px !important;
+  zoom: 1;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  -ms-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+/* Optimisation carte - transitions fluides Google Maps style */
+#map {
+  touch-action: manipulation;
+  transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  overflow: hidden;
+  will-change: transform;
+  transform-origin: center center;
+}
+
+/* Empêcher le zoom sur tous les autres éléments */
+#hud, #search-bar-top, #speed-hud, #info-hud, #control-hud, .badge, .radarAlert, #travelTime, #recenterBtn {
+  touch-action: pan-x pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Améliorations globales pour interactions tactiles */
+input, button, .badge {
+  -webkit-tap-highlight-color: rgba(0, 225, 255, 0.2);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Animation de feedback tactile */
+@keyframes tap-feedback {
+  0% { background-color: rgba(0, 225, 255, 0.1); }
+  100% { background-color: rgba(0, 225, 255, 0.3); }
+}
+
+.badge:active, button:active {
+  animation: tap-feedback 0.15s ease-out;
+}
+
+/* Améliorer la visibilité de la route (styles de base) */
+.route-line {
+  filter: drop-shadow(0 0 8px rgba(66, 133, 244, 0.8));
+  animation: route-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes route-pulse {
+  from {
+    filter: drop-shadow(0 0 8px rgba(66, 133, 244, 0.8));
+  }
+  to {
+    filter: drop-shadow(0 0 12px rgba(66, 133, 244, 1));
+  }
+}
+
+@keyframes pulse-halo {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.2;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.6;
+  }
+}
+
+/* Animation supplémentaire pour le point bleu */
+.directional-marker {
+  transition: all 0.3s ease-out;
+}
+
+.directional-marker:hover {
+  transform: scale(1.1) !important;
+}
+
+/* Styles pour les feux de circulation */
+.traffic-light-icon {
+  animation: traffic-blink 3s infinite;
+}
+
+@keyframes traffic-blink {
+  0%, 90% { opacity: 1; }
+  95% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* Styles pour les contrôles de police */
+.police-control-icon {
+  animation: police-pulse 2s ease-in-out infinite;
+}
+
+@keyframes police-pulse {
+  0% { 
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(0, 102, 255, 0.8);
+  }
+  50% { 
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(0, 102, 255, 1);
+  }
+  100% { 
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(0, 102, 255, 0.8);
+  }
+}
+
+/* Animations pour les ondulations de destination */
+@keyframes ripple1 {
+  0% { 
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  50% { 
+    transform: scale(1.2);
+    opacity: 0.4;
+  }
+  100% { 
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+}
+
+@keyframes ripple2 {
+  0% { 
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% { 
+    transform: scale(1.1);
+    opacity: 0.3;
+  }
+  100% { 
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+}
+
+@keyframes ripple3 {
+  0% { 
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% { 
+    transform: scale(1.05);
+    opacity: 0.2;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 0.4;
+  }
+}
+
+/* Styles pour les options d'itinéraire */
+.route-option {
+  background: rgba(8,16,26,.6);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+}
+
+.route-option:hover {
+  background: rgba(8,16,26,.8);
+  border-color: var(--neon);
+  transform: translateY(-1px);
+}
+
+/* Styles pour les boutons de paramètres */
+.route-type-btn.active {
+  background: linear-gradient(135deg, #003311, #006644) !important;
+  color: var(--neon) !important;
+}
+
+#avoid-tolls.active {
+  background: linear-gradient(135deg, #003311, #006644) !important;
+  color: var(--neon) !important;
+}
+
+#toggle-follow.active, #toggle-gyro.active {
+  background: linear-gradient(135deg, #003311, #006644) !important;
+  color: var(--neon) !important;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Barre de recherche compacte et discrète -->
+  <div id="search-bar-top" style="position:fixed; top:10px; left:10px; right:10px; z-index:1000; display:flex; align-items:center; gap:8px;">
+    <div style="flex:1; background:rgba(8,16,26,0.75); backdrop-filter:blur(8px); border:1px solid rgba(27,50,77,0.5); border-radius:24px; padding:4px 8px; position:relative; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+      <input id="dest" placeholder="🔍 Rechercher..." style="width:100%; background:transparent; border:none; color:var(--fg); font-size:14px; padding:8px 40px 8px 12px;"/>
+      <div id="suggestions" class="suggestions-dropdown" style="bottom:auto; top:100%;"></div>
+    </div>
+    <button id="go" style="background:rgba(66,133,244,0.9); color:#fff; font-weight:600; padding:10px 14px; font-size:14px; border-radius:20px; border:none; box-shadow:0 2px 6px rgba(0,0,0,0.2);">→</button>
+  </div>
+
+  <!-- Vitesse (compacte) -->
+  <div id="speed-hud" style="position:fixed; top:60px; left:10px; z-index:1000;">
+    <div style="background:rgba(8,16,26,0.75); backdrop-filter:blur(8px); border:1px solid rgba(27,50,77,0.5); border-radius:20px; padding:8px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+      <div id="speed" style="font-size:16px; font-weight:700; color:var(--neon);">—</div>
+    </div>
+  </div>
+
+  <!-- Radar en haut à droite (compacte) -->
+  <div id="info-hud" style="position:fixed; top:60px; right:10px; z-index:1000;">
+    <div style="background:rgba(8,16,26,0.75); backdrop-filter:blur(8px); border:1px solid rgba(27,50,77,0.5); border-radius:20px; padding:8px 12px; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+      <div id="nextRadar" style="font-size:10px; font-weight:500; color:var(--warn); line-height:1.2;">—</div>
+    </div>
+  </div>
+
+  <!-- Boutons de contrôle en bas (compacte) -->
+  <div id="control-hud" style="position:fixed; bottom:15px; left:50%; transform:translateX(-50%); z-index:1000; display:flex; align-items:center; gap:8px;">
+    <button id="talk" style="background:rgba(8,16,26,0.85); backdrop-filter:blur(8px); color:var(--neon); border:1px solid rgba(27,50,77,0.5); padding:10px 14px; font-size:14px; border-radius:20px; box-shadow:0 2px 6px rgba(0,0,0,0.2);">🎙️</button>
+    <button onclick="toggleSettings()" style="background:rgba(8,16,26,0.85); backdrop-filter:blur(8px); color:var(--neon); border:1px solid rgba(27,50,77,0.5); padding:10px 14px; font-size:14px; border-radius:20px; box-shadow:0 2px 6px rgba(0,0,0,0.2);">⚙️</button>
+  </div>
+
+  <!-- Sélecteur d'itinéraires -->
+  <div id="routeSelector" style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:2000; background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow:0 8px 32px rgba(0,0,0,0.5); backdrop-filter:blur(12px); display:none; max-width:350px; width:90%;">
+    <h3 style="margin:0 0 16px 0; color:var(--neon); text-align:center;">Choisir un itinéraire</h3>
+    <div id="routeOptions"></div>
+    <button onclick="document.getElementById('routeSelector').style.display='none'" style="width:100%; margin-top:12px; background:var(--bg); color:var(--muted); border:1px solid var(--border); border-radius:8px; padding:12px; cursor:pointer;">Annuler</button>
+  </div>
+
+  <!-- Panel des paramètres -->
+  <div id="settingsPanel" style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:2000; background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:0 8px 32px rgba(0,0,0,0.5); backdrop-filter:blur(12px); display:none; max-width:400px; width:90%;">
+    <h3 style="margin:0 0 20px 0; color:var(--neon); text-align:center;">⚙️ Paramètres</h3>
+    
+    <div style="margin-bottom:20px;">
+      <h4 style="color:var(--accent); margin:0 0 12px 0;">GPS et Navigation</h4>
+      <button id="toggle-follow" onclick="toggleFollowing()" style="width:100%; margin-bottom:8px; background:linear-gradient(135deg, #003311, #006644); color:var(--neon); border:1px solid var(--border); border-radius:8px; padding:12px; cursor:pointer;">⏹️ Arrêter le suivi</button>
+      <button id="toggle-gyro" onclick="toggleGyroscope()" style="width:100%; background:linear-gradient(135deg, #003311, #006644); color:var(--neon); border:1px solid var(--border); border-radius:8px; padding:12px; cursor:pointer;">🧭 Gyro: ON</button>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <h4 style="color:var(--accent); margin:0 0 12px 0;">Options d'itinéraire</h4>
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <button id="route-fastest" onclick="toggleRouteType('fastest')" class="route-type-btn active" style="flex:1; background:linear-gradient(135deg, #003311, #006644); color:var(--neon); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:12px; cursor:pointer;">Rapide</button>
+        <button id="route-shortest" onclick="toggleRouteType('shortest')" class="route-type-btn" style="flex:1; background:linear-gradient(135deg, #331100, #664400); color:var(--muted); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:12px; cursor:pointer;">Court</button>
+        <button id="route-balanced" onclick="toggleRouteType('balanced')" class="route-type-btn" style="flex:1; background:linear-gradient(135deg, #331100, #664400); color:var(--muted); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:12px; cursor:pointer;">Équilibré</button>
+      </div>
+      <button id="avoid-tolls" onclick="toggleTolls()" style="width:100%; background:linear-gradient(135deg, #331100, #664400); color:var(--muted); border:1px solid var(--border); border-radius:8px; padding:12px; cursor:pointer;">🚫 Éviter les péages</button>
+    </div>
+
+    <button onclick="toggleSettings()" style="width:100%; background:var(--bg); color:var(--neon); border:1px solid var(--border); border-radius:8px; padding:12px; cursor:pointer;">Fermer</button>
+  </div>
+
+  <!-- Bouton de recentrage -->
+  <button id="recenterBtn" title="Recentrer sur ma position">🎯</button>
+
+  <div id="map"></div>
+  <div class="radarAlert" id="alert" style="display:none"></div>
+  <div id="travelTime" style="position:fixed; bottom:100px; right:10px; z-index:1000; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 12px; box-shadow:0 0 18px rgba(0,225,255,.25); color:var(--fg); font-size:13px; display:none; max-width:140px;">
+    <div style="font-weight:600; margin-bottom:4px;">Temps de trajet</div>
+    <div id="travelTimeValue">—</div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+html {
+  height: 100%;
+  width: 100%;
+}
+
+/* Améliorations globales pour la fluidité et les performances */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Optimisations pour les transformations - hardware acceleration */
+.directional-marker, .route-main, .route-glow, .route-flow {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+/* Améliorations pour interactions tactiles */
+@keyframes ripple-effect {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Optimisations pour transitions fluides */
+@media (prefers-reduced-motion: no-preference) {
+  .enhanced-route {
+    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+}
+
+/* Réduire les animations si l'utilisateur préfère */
+@media (prefers-reduced-motion: reduce) {
+  .directional-marker, .route-main, .route-glow {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Animations pour l'icône de position utilisateur */
+@keyframes pulse-modern {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-secondary {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  40% {
+    transform: scale(1.2);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes breath {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+
+@keyframes smooth-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Style pour le marqueur directionnel - optimisé pour la fluidité */
+.directional-marker {
+  transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
+  transform-origin: center center;
+}
+
+/* Styles avancés pour les routes améliorées */
+.enhanced-route {
+  position: relative;
+  z-index: 100;
+}
+
+.route-main {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+  animation: route-enhance 3s ease-in-out infinite;
+}
+
+.route-outline {
+  z-index: 98;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.2));
+}
+
+.route-glow {
+  z-index: 97;
+  animation: route-glow-pulse 4s ease-in-out infinite alternate;
+}
+
+.route-flow {
+  z-index: 101;
+  animation: route-flow 2s linear infinite;
+  stroke-dasharray: 20 10;
+}
+
+/* Animation de flow directionnel */
+@keyframes route-flow {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    stroke-dashoffset: 30;
+    opacity: 0.3;
+  }
+}
+
+/* Animation d'amélioration de la route principale */
+@keyframes route-enhance {
+  0% {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 3px 8px rgba(66, 133, 244, 0.4)) brightness(1.1);
+  }
+  100% {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3)) brightness(1);
+  }
+}
+
+/* Animation de pulsation du glow */
+@keyframes route-glow-pulse {
+  0% {
+    opacity: 0.2;
+    filter: blur(2px);
+  }
+  50% {
+    opacity: 0.4;
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 0.2;
+    filter: blur(2px);
+  }
+}
+
+/* Animation pour les marqueurs de virages */
+@keyframes turn-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(66, 133, 244, 0.6);
+  }
+  50% {
+    transform: scale(1.2);
+    box-shadow: 0 0 12px rgba(66, 133, 244, 0.9);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(66, 133, 244, 0.6);
+  }
+}
+
+/* Marqueurs de virages */
+.turn-marker {
+  z-index: 102;
+  pointer-events: none;
+}
+
+/* Adaptation responsive pour mobile */
+@media (max-width: 768px) {
+  .route-main {
+    animation: route-enhance-mobile 3s ease-in-out infinite;
+  }
+  
+  @keyframes route-enhance-mobile {
+    0% {
+      filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.3)) brightness(1);
+    }
+    50% {
+      filter: drop-shadow(0 2px 6px rgba(66, 133, 244, 0.4)) brightness(1.1);
+    }
+    100% {
+      filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.3)) brightness(1);
+    }
+  }
+}
+
+/* Optimisations pour les performances sur les appareils faibles */
+@media (max-width: 480px) {
+  .route-glow {
+    display: none; /* Désactiver le glow sur les petits écrans pour les performances */
+  }
+  
+  .route-flow {
+    animation-duration: 3s; /* Ralentir l'animation pour économiser la batterie */
+  }
+  
+  .directional-marker {
+    transition-duration: 0.15s; /* Transitions plus rapides sur mobile */
+  }
+}
